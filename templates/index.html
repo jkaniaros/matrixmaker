@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix Maker</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            max-width: 100%;
+            padding: 10px;
+        }
+
+        .matrix-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 500px; /* Limits matrix size on large screens */
+        }
+
+        .matrix {
+            display: grid;
+            grid-template-columns: repeat(16, 1fr);
+            width: 100%;
+            max-width: 90vw; /* Responsive width on mobile */
+        }
+
+        .cell {
+            width: 100%;
+            padding-bottom: 100%; /* Keeps cells square */
+            background-color: #666666;
+            border: 1px solid black;
+            cursor: pointer;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 10px;
+            width: 100%;
+            max-width: 500px; /* Align with matrix max-width */
+        }
+
+        .color-button {
+            width: 30px;
+            height: 30px;
+            margin: 5px;
+            cursor: pointer;
+            border: 1px solid black;
+        }
+
+        #color-picker {
+            display: none;
+        }
+
+        #brightnessText {
+            width: 30px;
+        }
+
+        #generatedJson {
+            width: 100%;
+            max-width: 300px;
+            margin-top: 10px;
+        }
+
+        @media (min-width: 700px) {
+            .matrix-container {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                width: 50vw;
+                max-width: 90vw; 
+            }
+
+            .container {
+                flex-direction: row;
+                align-items: flex-start;
+                gap: 20px;
+                display: flex;
+                padding: 10px; 
+            }
+
+            .controls {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 5px;
+            }
+        }
+    </style>
+</head>
+<body>
+<h1>WLED Matrix Maker</h1>
+<p>To change a color, double click on a predefined one.</p>
+<div class="container">
+    
+    <div class="matrix-container">
+        <div class="matrix" id="matrix"></div>
+    </div>
+
+    <div class="controls">
+        <div>
+            <label>Brightness:
+                <input type="range" id="brightness" min="0" max="255" value="60" oninput="this.nextElementSibling.value = this.value">
+                <input type="text" id="brightnessText" value="60" oninput="this.previousElementSibling.value = this.value">
+            </label>
+        </div>
+        <div>
+            <button id="reset">Reset</button>
+            <button id="generate">Generate JSON</button>
+            <textarea id="generatedJson" placeholder="Space for JSON-String" readonly></textarea>
+        </div>
+        <div>
+            <input type="text" id="ip" placeholder="Enter Host IP" value="wled.local">
+            <button id="testIP">Test Host IP</button>
+            <button id="send">Send to WLED</button>
+        </div>
+        <div id="color-palette"></div>
+        <input type="color" id="color-picker" value="#FFFFFF">
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const matrixSize = 16;
+        const colors = ["#FFFFFF","#000000","#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF"]; // Example colors
+        let currentColor = "#FFFFFF";
+        let matrix = Array.from({ length: matrixSize }, () => Array(matrixSize).fill(null));
+        let isMouseDown = false;
+        let selectedButton = null; // Track the currently selected color button
+
+        function createMatrix() {
+            const matrixDiv = document.getElementById('matrix');
+            for (let i = 0; i < matrixSize; i++) {
+                for (let j = 0; j < matrixSize; j++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    
+                    // Mouse events
+                    cell.addEventListener('mousedown', () => {
+                        isMouseDown = true;
+                        colorCell(i, j);
+                    });
+                    cell.addEventListener('mouseover', () => {
+                        if (isMouseDown) {
+                            colorCell(i, j);
+                        }
+                    });
+                    cell.addEventListener('mouseup', () => {
+                        isMouseDown = false;
+                    });
+
+                    // Touch events
+                    cell.addEventListener('touchstart', (e) => {
+                        e.preventDefault(); // Prevent scrolling
+                        isMouseDown = true;
+                        colorCell(i, j);
+                    });
+                    cell.addEventListener('touchmove', (e) => {
+                        if (isMouseDown) {
+                            const touch = e.touches[0];
+                            const targetCell = document.elementFromPoint(touch.clientX, touch.clientY);
+                            if (targetCell && targetCell.classList.contains('cell')) {
+                                const index = Array.from(matrixDiv.children).indexOf(targetCell);
+                                const row = Math.floor(index / matrixSize);
+                                const col = index % matrixSize;
+                                colorCell(row, col);
+                            }
+                        }
+                    });
+                    cell.addEventListener('touchend', () => {
+                        isMouseDown = false;
+                    });
+
+                    matrixDiv.appendChild(cell);
+                }
+            }
+        }
+
+        function colorCell(i, j) {
+            const cell = document.querySelector(`.matrix div:nth-child(${i * matrixSize + j + 1})`);
+            cell.style.backgroundColor = currentColor;
+            matrix[i][j] = toHex(currentColor);
+        }
+
+        function createColorPalette() {
+            const paletteDiv = document.getElementById('color-palette');
+            colors.forEach(color => {
+                const button = document.createElement('button');
+                button.className = 'color-button';
+                button.style.backgroundColor = color;
+                button.addEventListener('click', () => selectColor(button));
+                paletteDiv.appendChild(button);
+            });
+        }
+
+        function selectColor(button) {
+            const colorPicker = document.getElementById('color-picker');
+            if (selectedButton === button) {
+                colorPicker.value = currentColor;
+                colorPicker.style.display = 'inline-block';
+                colorPicker.onchange = function() {
+                    const newColor = colorPicker.value;
+                    button.style.backgroundColor = newColor;
+                    currentColor = newColor;
+                };
+            } else {
+                selectedButton = button;
+                currentColor = button.style.backgroundColor;
+                colorPicker.value = currentColor;
+                colorPicker.style.display = 'none';
+            }
+        }
+
+        function resetMatrix() {
+            matrix = Array.from({ length: matrixSize }, () => Array(matrixSize).fill(null));
+            const cells = document.querySelectorAll('.cell');
+            cells.forEach(cell => {
+                cell.style.backgroundColor = '#666666';
+            });
+        }
+
+        function generateJSON() {
+            const brightness = document.getElementById('brightness').value;
+            const json = {
+                on: true,
+                bri: parseInt(brightness),
+                v: true,
+                seg: {
+                    i: matrix.flat().map(color => (color ? color.replace("#", "") : "undefined"))
+                }
+            };
+            //document.getElementById('generatedJson').style.display = "inline-block";
+            document.getElementById('generatedJson').value = JSON.stringify(json);
+            return json;
+        }
+
+        function sendToWLED() {
+            const json = generateJSON();
+            const url = 'http://'+document.getElementById('ip').value+'/json/state';
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(json)
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log("Server Response:", data);
+            })
+            .catch((error) => {
+                console.error("Error:", error);
+            });
+        }
+
+        function testIP() {
+            const url = 'http://' + document.getElementById('ip').value + '/json/state';
+            const timeoutDuration = 5000; // Timeout duration in milliseconds (5 seconds)
+
+            // Create a timeout promise
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Request timed out. Host not reachable.')), timeoutDuration)
+            );
+
+            // Fetch data and race against the timeout
+            Promise.race([
+                fetch(url, { method: 'GET' }),
+                timeoutPromise
+            ])
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                alert("IP Address is valid and returned JSON: " + JSON.stringify(data));
+            })
+            .catch((error) => {
+                alert("Error: " + error.message);
+            });
+        }
+
+        function toHex(color) {
+            // Check if the color is already in HEX format
+            if (color.startsWith("#")) {
+                return color.toUpperCase();
+            }
+
+            // Convert RGB format (e.g., "rgb(255, 99, 71)") to HEX
+            const rgbMatch = color.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+            if (rgbMatch) {
+                const [_, r, g, b] = rgbMatch;
+                return rgbToHex(Number(r), Number(g), Number(b));
+            }
+
+            throw new Error("Invalid color format");
+        }
+
+        function rgbToHex(r, g, b) {
+            return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
+        }
+
+
+        document.getElementById('reset').addEventListener('click', resetMatrix);
+        document.getElementById('generate').addEventListener('click', generateJSON);
+        document.getElementById('send').addEventListener('click', sendToWLED);
+        document.getElementById('testIP').addEventListener('click', testIP);
+
+        createMatrix();
+        createColorPalette();
+    });
+</script>
+</body>
+</html>

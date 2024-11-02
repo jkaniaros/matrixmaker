@@ -1,0 +1,8 @@
+services:
+  web:
+    build: .
+    container_name: matrixmaker
+    ports:
+      - "5005:5005"
+    working_dir: /matrixmaker
+    restart: unless-stopped
